@@ -4,6 +4,7 @@ const app = express();
 
 const router = require('./routes/index')
 const port = process.env.PORT || 3001;
+const host = process.env.HOST || '127.0.0.1';
 const frontendUrl = process.env.FRONTEND_URL || '*';
 
 app.use(express.json());
@@ -18,4 +19,7 @@ app.use((_, res, next) => {
 
 app.use(router)
 
-app.listen(port, () => console.log(`server running on port ${port}`));
+const server = app.listen(port, host, () => {
+    const {address, port} = server.address();
+    console.log(`Server running at http://${address}:${port}`)   
+});
