@@ -1,29 +1,70 @@
-const express = require('express')
-const router = express.Router()
-const db = require ('../db/index')
+const express = require('express');
+const router = express.Router();
+const db = require('../db/index');
+const Video = require('../models/Video');
 
-router.get('/videos/:publisherId', async (req, res) => {
-    try {
-        const {publisherId} = req.params
-        const results = await db.query(`
-            SELECT * FROM trc.videos
-            WHERE publisher_id = ?
-            LIMIT 100;
-        `, [publisherId])
+router.get('/videos', async (req, res) => {
+	try {
+        Video.resetItemIds()
 
-        if (results.code === 'PROTOCOL_CONNECTION_LOST') throw new Error ("DB Connection was lost. Try again")
-        res.send(results)
-    } catch (error) {
-        
-    }
-})
+		const { pubId, publisher } = req.query;
 
+		const results = await db.query(
+			`
+                SELECT trc.videos.*
+                FROM trc.videos
+                WHERE trc.videos.publisher_id = ?
+                ORDER BY trc.videos.create_time DESC
+                LIMIT 20;
+            `,
+			[pubId]
+		);
 
-module.exports = router
+		if (results.code === 'PROTOCOL_CONNECTION_LOST')
+			throw new Error('DB Connection was lost. Try again');
 
-// SELECT v.*, a.* FROM
-// trc.videos AS v
-// INNER JOIN trc.publishers AS p ON v.publisher_id = p.id
-// INNER JOIN crawler.audit AS a ON p.name = a.publisher
-// WHERE publisher_id = ${ pubId }
-// LIMIT 10;
+		const videos = results.map(result => new Video(result));
+
+		const crawlerAuditResults = await db.query(
+			`
+                SELECT *
+                FROM crawler.audit
+                WHERE publisher = ?
+                AND pub_item_id IN (?);
+            `,
+			[publisher, Video.getAllItemIds()]
+		);
+
+		if (crawlerAuditResults.code === 'PROTOCOL_CONNECTION_LOST')
+			throw new Error('DB Connection was lost. Try again');
+
+		crawlerAuditResults.forEach(result => {
+			const video = videos.find(vid => vid.pub_video_id === result.pub_item_id);
+			video.setCrawlerAuditData(result);
+		});
+
+		const crawlerInstructionsResults = await db.query(
+			`
+                SELECT *
+                FROM crawler.instructions
+                WHERE publisher = ?
+                AND pub_item_id IN (?);
+            `,
+			[publisher, Video.getAllItemIds()]
+		);
+
+		if (crawlerInstructionsResults.code === 'PROTOCOL_CONNECTION_LOST')
+            throw new Error('DB Connection was lost. Try again');
+            
+		crawlerInstructionsResults.forEach(result => {
+			const video = videos.find(vid => vid.pub_video_id === result.pub_item_id);
+			video.setCrawlerInstructionsData(result);
+		});
+
+		res.send(videos);
+	} catch (error) {
+		res.send({ error: error.message });
+	}
+});
+
+module.exports = router;

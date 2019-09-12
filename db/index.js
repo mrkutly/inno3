@@ -1,33 +1,50 @@
 require('dotenv').config();
-const mysql = require('mysql')
-const util = require('util')
+const mysql = require('mysql');
+const util = require('util');
 
-const pool = mysql.createPool({
-    connectionLimit: 50,
-    user: process.env.PS_DB_USER, 
-    host: process.env.PS_DB_HOST,
-    database: process.env.PS_DB_DATABASE,
-    password: process.env.PS_DB_PASSWORD,
-    port: process.env.PS_DB_PORT,
-})
+const poolConfig = {
+	connectionLimit: 10,
+	user: process.env.CRAWLER_DB_USERNAME,
+	host: process.env.CRAWLER_DB_HOST,
+	database: process.env.CRAWLER_DB_DATABASE,
+	password: process.env.CRAWLER_DB_PASSWORD,
+	port: process.env.CRAWLER_DB_PORT,
+};
 
-const getConnection = util.promisify(pool.getConnection).bind(pool)
+const clusterConfig = {
+	restoreNodeTimeout: 500,
+};
+
+const cluster = mysql.createPoolCluster(clusterConfig);
+
+cluster.add(poolConfig);
+cluster.add(poolConfig);
+cluster.add(poolConfig);
+cluster.add(poolConfig);
+cluster.add(poolConfig);
+
+const getConnection = util.promisify(cluster.getConnection).bind(cluster);
 
 module.exports = {
-    /** 
-     * @param sql {String} - a string of sql
-     * @param values {Array} (optional) - an array of values to bind to the sql string
-    */
-    query: async (sql, values) => {
-        try {
-            values = values || undefined;
-            const connection = await getConnection()
-            const query = util.promisify(connection.query).bind(connection)
-            const res = await query(sql, values)
-            connection.release()
-            return res
-        } catch (error) {
-            return error
-        }
-    }
-}
+	/**
+	 * @param sql {String} - a string of sql
+	 * @param values {Array} (optional) - an array of values to bind to the sql string
+	 */
+	query: async (sql, values) => {
+		try {
+			const start = new Date();
+
+			values = values || undefined;
+			const connection = await getConnection('*');
+			const query = util.promisify(connection.query).bind(connection);
+			const res = await query(sql, values);
+			connection.release();
+
+			const end = new Date();
+			console.log(`Query Time - ${end - start}`);
+			return res;
+		} catch (error) {
+			return error;
+		}
+	},
+};
